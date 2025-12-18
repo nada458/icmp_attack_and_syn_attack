@@ -1,0 +1,632 @@
+Network Security Project Requirements – Student Guide
+1. Project Overview
+- Course: Network Security – Network Penetration Testing
+- Project Type: Machine Learning IDS using a self-created dataset
+- Submission & Presentation Date: Monday, 22 December 2025
+- Teams must choose ONE unique attack type (no duplicates across the batch)
+2. Core Rules
+- Each team selects one attack scenario.
+- All team members must work on the same attack.
+- No two teams may choose the same idea.
+- A Google Sheet will be provided to register the attack type.
+3. Required Steps
+Step 1 – Choose the Attack
+- Select a single network attack scenario
+- Register it in the provided Google Sheet (first come, first served)
+Step 2 – Prepare the Lab Environment
+- Set up attacker (Kali) and victim machines
+- Prepare tools for normal and attack traffic generation
+- Prepare exploits/scripts for demonstration
+Step 3 – Capture Network Traffic
+- Capture normal traffic (e.g., browsing, ping, FTP)
+- Capture attack traffic (based on your selected attack)
+- Save PCAP files and convert them into a dataset
+Step 4 – Label the Dataset
+- Add a label column (0 = normal, 1 = attack)
+- Provide counts: number of normal vs. attack records
+
+Step 5 – Feature Engineering
+- Extract relevant features from captured traffic
+- Understand and explain each chosen feature
+Step 6 – Feature Selection
+- Use methods such as RFE, ANOVA, or others
+- Select the most important final features
+Step 7 – Machine Learning Modeling
+- Train ML models (e.g., SVM, Random Forest)
+- Explain why each model was chosen
+Step 8 – Evaluation
+- Evaluate models using:
+• Accuracy
+• Precision
+• Recall
+• F1-score
+- Include confusion matrix & comparison if multiple models used
+4. What You Must Deliver
+A. On Presentation Day (22 December 2025)
+- Full lab environment prepared
+- Exploits/scripts ready to run
+- Ability to demonstrate and explain:
+• Attack execution
+• Traffic capture
+• Dataset creation
+• Feature selection
+• ML modeling
+• Results
+
+B. Dataset
+- Final dataset (CSV/Excel)
+- Number of normal vs. attack records
+- List of features + descriptions
+C. Machine Learning Output
+- Final chosen features
+- ML models used + justification
+- Evaluation metrics
+- Discussion of results
+D. PDF Report (Mandatory)
+Must include:
+1. Cover Page
+2. Introduction to the attack
+3. Lab setup & topology
+4. Attack execution steps + commands
+5. Dataset creation + record counts
+6. Feature descriptions
+7. Feature selection method & results
+8. ML models used + explanation
+9. Evaluation metrics + comparison
+10. Conclusion & future work
+E. Code Submission
+- Scripts, notebooks, preprocessing tools
+- Students must understand all code
+This project evaluates practical skills in attack simulation, dataset creation, feature engineering, ML
+modeling, and reporting.
+
+
+
+......................................................
+#ip
+meta 192.168.249.144
+kali 192.168.249.140
+nm-connection-editor
+sudo dhclient -v eth0 
+sudo nmcli networking off
+sudo nmcli networking on
+
+
+
+
+
+
+
+
+...........................................................
+#normal
+wireshark          #kali1
+ftp TIP            #kali2
+ping TIP
+save as .pcapng
+.........................
+#icmp
+wireshark      #kali1          
+sudo hping3 --icmp --flood -d 120 <Target_IP>        #kali2
+save as .pcapng
+
+..........................................
+#syn
+wireshark      #kali1 
+sudo hping3 -S --flood <Target_IP> -p <Target_Port>   # can use any port open ex. 80,23,.....
+save as .pcapng
+
+..........................................
+#cd file
+#ls
+tshark -r normal.pcapng -T fields -e frame.number -e frame.time -e frame.time_delta -e ip.src -e ip.dst -e ip.proto -e ip.ttl -e ip.len -e icmp.type -e icmp.code -e icmp.seq -E header=y -E separator=, -E quote=d -E occurrence=f > normal.csv
+................................................
+tshark -r icmpattack.pcapng -T fields -e frame.number -e frame.time -e frame.time_delta -e ip.src -e ip.dst -e ip.proto -e ip.ttl -e ip.len -e icmp.type -e icmp.code -e icmp.seq -E header=y -E separator=, -E quote=d -E occurrence=f > icmpattack.csv
+..............................................
+tshark -r <file> -T fields -e frame.time_delta -e ip.proto -e ip.len -e tcp.srcport -e tcp.dstport -e tcp.flags.syn -e icmp.type -e icmp.seq -e icmp.code -E header=y -E separator=, -E quote=d -E occurrence=f > <output.csv>
+
+..............................................
+#دمج
+process_data.py
+
+
+
+
+
+import pandas as pd
+import numpy as np
+
+# 1. قراءة الملفات (Read the CSV files)
+# تأكدي إن أسماء الملفات هنا هي نفس الأسماء اللي عندك على الجهاز
+try:
+    df_normal = pd.read_csv('normal.csv')
+    df_attack = pd.read_csv('icmpattack.csv')
+    print("Files loaded successfully!")
+except FileNotFoundError:
+    print("Error: Files not found. Please check the file names.")
+    exit()
+
+# 2. إضافة الليبل (Labeling)
+# 0 = Normal, 1 = Attack
+df_normal['Label'] = 0
+df_attack['Label'] = 1
+
+# 3. دمج الملفين (Concatenation)
+df_final = pd.concat([df_normal, df_attack], ignore_index=True)
+
+# 4. تنظيف البيانات (Data Cleaning)
+# استبدال الخانات الفاضية (NaN) بأصفار
+df_final = df_final.fillna(0)
+
+# تحويل بروتوكول ICMP لـ 1 لو مش مكتوب (اختياري لتحسين الدقة)
+# في حالتنا، الـ fillna(0) كافية جداً
+
+# 5. الحفظ (Save Final Dataset)
+df_final.to_csv('final_dataset.csv', index=False)
+
+print("-" * 30)
+print(f"Done! Final dataset saved as 'final_dataset.csv'")
+print(f"Total Records: {len(df_final)}")
+print(f"Normal Packets: {len(df_normal)}")
+print(f"Attack Packets: {len(df_attack)}")
+print("-" * 30)
+.............................................
+merge_data.py
+
+import pandas as pd
+import numpy as np
+import os
+
+# 1. تعريف أسماء الملفات
+NORMAL_FILE = 'normal.csv'
+ICMP_FILE = 'icmp_attack.csv'
+SYN_FILE = 'syn_attack.csv'
+OUTPUT_FILE = 'final_multiclass_dataset.csv'
+
+# 2. تحميل الملفات والتحقق من وجودها
+try:
+    df_normal = pd.read_csv(NORMAL_FILE)
+    df_icmp = pd.read_csv(ICMP_FILE)
+    df_syn = pd.read_csv(SYN_FILE)
+    print("✅ Files loaded successfully: Normal, ICMP, and SYN.")
+except FileNotFoundError as e:
+    print(f"❌ Error: Required file not found. Please ensure {e.filename} exists.")
+    exit()
+
+# 3. تعيين الليبل (Label Assignment)
+# 0 = Normal Traffic
+# 1 = ICMP Flood Attack
+# 2 = SYN Flood Attack
+df_normal['Label'] = 0
+df_icmp['Label'] = 1
+df_syn['Label'] = 2
+
+# 4. دمج الملفات الثلاثة (Concatenation)
+# يتم تجميع الداتا فريم (DataFrame) رأسياً
+df_final = pd.concat([df_normal, df_icmp, df_syn], ignore_index=True)
+
+# 5. تنظيف البيانات (ملء الخانات الفارغة بـ 0)
+# هذا يضمن أن الـ Machine Learning Model لن يواجه قيم NaN الناتجة عن اختلاف البروتوكولات
+df_final = df_final.fillna(0)
+
+# 6. حفظ الـ Dataset النهائي
+df_final.to_csv(OUTPUT_FILE, index=False)
+
+print("-" * 50)
+print(f"✅ Success! Multiclass dataset created: '{OUTPUT_FILE}'")
+print(f"Total Records: {len(df_final)}")
+print(f"Normal (0) Records: {len(df_normal)}")
+print(f"ICMP (1) Records: {len(df_icmp)}")
+print(f"SYN (2) Records: {len(df_syn)}")
+print("-" * 50)
+
+
+
+
+.............................................
+python3 process_data.py
+......................................................
+#AI train
+train_model.py
+
+
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 1. تحميل الداتا
+print("Loading dataset...")
+df = pd.read_csv('final_dataset.csv')
+
+# 2. تنظيف الداتا قبل التدريب (Preprocessing)
+# الموديل مبيفهمش غير أرقام، فلازم نشيل العواميد اللي فيها كلام (Strings)
+# وكمان بنشيل الـ frame.number لأنه مجرد تسلسل ملوش معنى
+# بنشيل الـ IP عشان الموديل يتعلم "سلوك الهجوم" مش يحفظ "عنوان الهجوم"
+cols_to_drop = ['frame.number', 'frame.time', 'ip.src', 'ip.dst']
+
+# نتأكد إن العواميد دي موجودة قبل ما نحذفها عشان ميطلعش Error
+existing_cols_to_drop = [col for col in cols_to_drop if col in df.columns]
+X = df.drop(columns=existing_cols_to_drop + ['Label']) # الـ Features (المعطيات)
+y = df['Label'] # الـ Target (النتيجة: هجوم ولا طبيعي)
+
+# 3. تقسيم الداتا (Splitting)
+# 70% تدريب - 30% اختبار
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+print(f"Training set size: {len(X_train)}")
+print(f"Test set size: {len(X_test)}")
+print("-" * 30)
+
+# 4. تدريب الموديل (Building the Model)
+# استخدمنا Random Forest لأنه مطلوب وممتاز في حالات الـ DDoS
+print("Training Random Forest Model...")
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# 5. الاختبار (Testing & Evaluation)
+print("Evaluating...")
+y_pred = model.predict(X_test)
+
+# حساب الدقة
+acc = accuracy_score(y_test, y_pred)
+print(f"\nModel Accuracy: {acc * 100:.2f}%")
+print("-" * 30)
+
+# تقرير مفصل (Precision, Recall, F1-Score)
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# مصفوفة الارتباك (Confusion Matrix)
+print("Confusion Matrix:")
+cm = confusion_matrix(y_test, y_pred)
+print(cm)
+print("(Row 1: Normal Actual, Row 2: Attack Actual)")
+print("-" * 30)
+
+# 6. أهم العوامل (Feature Importance) - دي عشان Step 6 في المشروع
+print("Feature Importance (Most influential features):")
+importances = model.feature_importances_
+feature_names = X.columns
+indices = np.argsort(importances)[::-1]
+
+for i in range(len(X.columns)):
+    print(f"{i+1}. {feature_names[indices[i]]}: {importances[indices[i]]:.4f}")
+
+
+
+.................................................
+
+ai_model.py
+
+
+
+import pandas as pd
+import numpy as np
+import joblib 
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+
+# --- PROJECT FILES AND SETUP ---
+DATA_FILE = 'final_multiclass_dataset.csv'
+MODEL_FILE = 'multiclass_ids_model.joblib'
+RANDOM_STATE = 42
+
+# Features used for training (Matching your CSV exactly, with 'ip.ttl' removed)
+FEATURES = [
+    'frame.time_delta', 'ip.proto', 'ip.len', 
+    'tcp.srcport', 'tcp.dstport', 'tcp.flags.syn', 
+    'icmp.type', 'icmp.seq', 'icmp.code'
+]
+# --- END SETUP ---
+
+# 1. Load Data and Clean
+print(f"Loading dataset from {DATA_FILE}...")
+try:
+    df = pd.read_csv(DATA_FILE)
+
+    # CRITICAL FIX: Strip spaces from headers
+    df.columns = df.columns.str.strip() 
+
+    # --- Robust Cleaning to handle mixed types/missing data ---
+    for feature in FEATURES:
+        # Converts non-numeric data to NaN
+        df[feature] = pd.to_numeric(df[feature], errors='coerce')
+    
+    # Fills all NaN values with 0
+    df = df.fillna(0)
+    
+    # 2. Define Features (X) and Target (y)
+    X = df[FEATURES]
+    y = df['Label']
+    
+except KeyError as e:
+    # This should now never happen, as the list is correct
+    print(f"❌ Error: Feature column {e} not found. (The CSV header is still corrupted).")
+    exit()
+except Exception as e:
+    print(f"❌ An unexpected error occurred during data loading: {e}")
+    exit()
+
+
+# 3. Splitting Data (70% Train - 30% Test)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=RANDOM_STATE)
+
+print(f"Training set size: {len(X_train)}")
+print(f"Test set size: {len(X_test)}")
+print("-" * 50)
+
+# 4. Training the Multiclass Model
+print("Training Random Forest Multiclass Model...")
+model = RandomForestClassifier(n_estimators=100, random_state=RANDOM_STATE, n_jobs=-1) 
+model.fit(X_train, y_train)
+
+# 5. Testing and Evaluation
+print("Evaluating...")
+y_pred = model.predict(X_test)
+
+acc = accuracy_score(y_test, y_pred)
+print(f"\nModel Accuracy: {acc * 100:.2f}%")
+print("-" * 50)
+
+# Classification Report
+print("Classification Report (0=Normal, 1=ICMP, 2=SYN):")
+print(classification_report(y_test, y_pred, zero_division=0))
+
+# Confusion Matrix
+print("Confusion Matrix:")
+cm = confusion_matrix(y_test, y_pred)
+print(cm)
+print("-" * 50)
+
+# 6. Feature Importance
+print("Feature Importance (Most influential features):")
+importances = model.feature_importances_
+feature_names = X.columns
+indices = np.argsort(importances)[::-1]
+
+for i in range(len(X.columns)):
+    print(f"{i+1}. {feature_names[indices[i]]}: {importances[indices[i]]:.4f}")
+print("-" * 50)
+
+
+# 7. Saving the Model for Live Test
+joblib.dump(model, MODEL_FILE)
+print(f"✅ Model saved successfully as '{MODEL_FILE}'")
+
+-------------------------------------------------
+
+python3 process_data.py
+..........................................
+#install
+pip3 install scikit-learn pandas matplotlib seaborn --break-system-packages
+...................................................
+python3 train_model.py
+
+...……………
+pip3 install scapy --break-system-packages
+………………
+live_test.py
+
+
+
+import joblib
+import pandas as pd
+from scapy.all import sniff, IP, ICMP
+import numpy as np
+import time
+
+try:
+    model = joblib.load('ids_model.joblib')
+    print("IDS Model loaded successfully.")
+except FileNotFoundError:
+    print("Error: 'ids_model.joblib' not found. Please ensure it's in this folder.")
+    exit()
+
+FEATURE_COLUMNS = [
+    'frame.time_delta', 'ip.proto', 'ip.ttl', 'ip.len', 
+    'icmp.type', 'icmp.code', 'icmp.seq'
+]
+
+last_time = time.time() 
+
+
+def extract_features(packet):
+    global last_time
+    
+    current_time = packet.time
+    time_delta = current_time - last_time
+    last_time = current_time
+    
+    if IP in packet:
+        ip_proto = packet[IP].proto
+        ip_ttl = packet[IP].ttl
+        ip_len = packet[IP].len
+    else:
+        ip_proto = 0
+        ip_ttl = 0
+        ip_len = 0
+    
+    if ICMP in packet:
+        icmp_type = packet[ICMP].type
+        icmp_code = packet[ICMP].code
+        icmp_seq = packet[ICMP].seq
+    else:
+        icmp_type = 0
+        icmp_code = 0
+        icmp_seq = 0
+        
+    features_list = [
+        time_delta,       
+        ip_proto,         
+        ip_ttl,           
+        ip_len,           
+        icmp_type,        
+        icmp_code,        
+        icmp_seq          
+    ]
+    
+    return features_list
+
+
+def packet_callback(packet):
+    if IP in packet:
+        try:
+            features = extract_features(packet)
+            
+            df_predict = pd.DataFrame([features], columns=FEATURE_COLUMNS)
+            
+            prediction = model.predict(df_predict)[0]
+            
+            source_ip = packet[IP].src
+            
+            if prediction == 1:
+                result = "ATTACK (ICMP Flood)"
+                print(f"[{source_ip}] -> [*** DETECTED ***]: {result}")
+            else:
+                result = "Normal Traffic"
+                print(f"[{source_ip}] -> [SAFE]: {result}")
+        
+        except Exception as e:
+            print(f"[Error] Could not process packet: {e}")
+
+
+print("\n--- Starting Live IDS Monitor ---")
+print("Listening on eth0 (or your configured interface)...")
+print("Press Ctrl+C to stop.")
+
+sniff(iface="eth0", prn=packet_callback, store=0)
+
+
+
+-------------------------------------------------
+live_test.py
+
+
+import joblib
+import pandas as pd
+from scapy.all import sniff, IP, ICMP, TCP
+import numpy as np
+import time
+
+# --- MODEL FILES AND SETUP ---
+MODEL_FILE = 'multiclass_ids_model.joblib'
+INTERFACE = 'eth0' 
+CLASS_LABELS = {0: "Normal Traffic", 1: "ICMP Flood Attack", 2: "SYN Flood Attack"}
+
+# Features list (must match training order exactly)
+FEATURE_COLUMNS = [
+    'frame.time_delta', 'ip.proto', 'ip.len', 
+    'tcp.srcport', 'tcp.dstport', 'tcp.flags.syn', 
+    'icmp.type', 'icmp.seq', 'icmp.code'
+]
+# --- END SETUP ---
+
+
+# Load the trained model
+try:
+    model = joblib.load(MODEL_FILE)
+    print("IDS Multiclass Model loaded successfully.")
+except FileNotFoundError:
+    print(f"Error: '{MODEL_FILE}' not found. Please run ai_model.py first.")
+    exit()
+
+# Variable to track time between packets
+last_time = time.time() 
+
+
+def extract_features(packet):
+    global last_time
+    
+    current_time = packet.time
+    time_delta = current_time - last_time
+    last_time = current_time
+    
+    # 1. Extract IP features
+    if IP in packet:
+        ip_proto = packet[IP].proto
+        ip_len = packet[IP].len
+    else:
+        ip_proto = 0
+        ip_len = 0
+    
+    # 2. Extract TCP features
+    if TCP in packet:
+        tcp_srcport = packet[TCP].sport
+        tcp_dstport = packet[TCP].dport
+        tcp_flags_syn = 1 if 'S' in str(packet[TCP].flags) else 0
+    else:
+        tcp_srcport = 0
+        tcp_dstport = 0
+        tcp_flags_syn = 0
+        
+    # 3. Extract ICMP features
+    if ICMP in packet:
+        icmp_type = packet[ICMP].type
+        icmp_code = packet[ICMP].code
+        icmp_seq = packet[ICMP].seq
+    else:
+        icmp_type = 0
+        icmp_code = 0
+        icmp_seq = 0
+        
+    # Compile features in the EXACT ORDER of training
+    features_list = [
+        time_delta,       
+        ip_proto,         
+        ip_len,           
+        tcp_srcport,      
+        tcp_dstport,      
+        tcp_flags_syn,    
+        icmp_type,        
+        icmp_seq,         
+        icmp_code         
+    ]
+    
+    return features_list
+
+
+def packet_callback(packet):
+    # Only process packets with an IP layer
+    if IP in packet:
+        try:
+            # Extract features
+            features = extract_features(packet)
+            
+            # Convert features into a single-row DataFrame for the model
+            df_predict = pd.DataFrame([features], columns=FEATURE_COLUMNS)
+            
+            # Make prediction
+            prediction = model.predict(df_predict)[0]
+            
+            source_ip = packet[IP].src
+            
+            result_label = CLASS_LABELS[prediction]
+            
+            if prediction != 0:
+                # Output detected attack with its class (1 or 2)
+                print(f"[{source_ip}] -> [*** DETECTED {prediction} ***]: {result_label}")
+            else:
+                # Output safe traffic
+                print(f"[{source_ip}] -> [SAFE]: {result_label}")
+        
+        except Exception as e:
+            # Pass silently if a rare packet cannot be processed (to maintain IDS speed)
+            pass 
+
+
+# 3. Start Live Monitoring
+print("\n--- Starting Live IDS Monitor (Multiclass) ---")
+print(f"Listening on interface: {INTERFACE}. Classes: 0, 1, 2.")
+print("Press Ctrl+C to stop.")
+
+# Begin sniffing
+sniff(iface=INTERFACE, prn=packet_callback, store=0)
+
+----------------------------------------
+sudo python3 live_test.py
